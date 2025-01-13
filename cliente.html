@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clasificador de Imágenes</title>
+    <style>
+        /* Estilos generales */
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #1e1e2f, #2a2a4d);
+            color: #ffffff;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        /* Contenedor principal */
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 15px;
+            padding: 30px;
+            width: 400px;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        /* Títulos */
+        h1 {
+            font-size: 24px;
+            margin-bottom: 20px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: #00ffcc;
+        }
+
+        /* Inputs */
+        input[type="file"] {
+            background: #2a2a4d;
+            border: 1px solid #00ffcc;
+            color: #ffffff;
+            padding: 10px;
+            width: calc(100% - 22px);
+            border-radius: 10px;
+            margin-bottom: 20px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        input[type="file"]::-webkit-file-upload-button {
+            background: #00ffcc;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 5px;
+            color: #000;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        button {
+            background: #00ffcc;
+            color: #000000;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 20px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 5px 10px rgba(0, 0, 0, 0.3);
+            transition: background 0.3s ease;
+        }
+
+        button:hover {
+            background: #00cc99;
+        }
+
+        /* Vista previa de imagen */
+        #preview {
+            max-width: 300px;
+            max-height: 300px;
+            margin: 20px auto;
+            display: block;
+            border: 2px solid #00ffcc;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        /* Resultados */
+        #result {
+            margin-top: 20px;
+            font-weight: bold;
+            text-align: center;
+            font-size: 18px;
+            color: #00ffcc;
+        }
+
+        #result p {
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Clasificador de Imágenes</h1>
+        <form id="upload-form">
+            <input type="file" id="file" name="file" accept="image/*" required>
+            <button type="submit">Enviar</button>
+        </form>
+        <div id="result">
+            <img id="preview" src="" alt="Vista previa de la imagen" style="display: none;">
+            <p id="prediction"></p>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('upload-form');
+        const resultElement = document.getElementById('result');
+        const previewImage = document.getElementById('preview');
+        const predictionElement = document.getElementById('prediction');
+
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault(); // Prevenir recarga de la página
+
+            const fileInput = document.getElementById('file');
+            const file = fileInput.files[0];
+
+            if (!file) {
+                predictionElement.textContent = 'Por favor, selecciona una imagen.';
+                return;
+            }
+
+            // Mostrar vista previa de la imagen seleccionada
+            const reader = new FileReader();
+            reader.onload = () => {
+                previewImage.src = reader.result;
+                previewImage.style.display = 'block';
+            };
+            reader.readAsDataURL(file);
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('http://127.0.0.1:8000/predict', {
+                    method: 'POST',
+                    body: formData,
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    const prediction = data.prediction; // "Gato" o "Perro"
+                    const confidence = Math.round(data.confidence * 100); // 0-100%
+
+                    predictionElement.innerHTML = `Predicción: <strong>${prediction}</strong><br>Confiabilidad: <strong>${confidence}%</strong>`;
+                } else {
+                    predictionElement.textContent = `Error: ${response.status}`;
+                }
+            } catch (error) {
+                predictionElement.textContent = `Error de red: ${error.message}`;
+            }
+        });
+    </script>
+</body>
+</html>
