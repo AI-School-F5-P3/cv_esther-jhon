@@ -1,299 +1,188 @@
 import streamlit as st
 from ultralytics import YOLO
+from PIL import Image
 import cv2
 import numpy as np
-from PIL import Image
 import tempfile
-import pandas as pd
-import os
 
-def load_model():
-    """Carga el modelo YOLO entrenado."""
-    BASE_MODEL_DIR = "/content/drive/MyDrive/Proyecto Computer Vision/Entrenamiento yolo"
-    model_option = st.sidebar.radio(
-        "Selecciona el modelo:",
-        ("25 épocas", "50 épocas con early stopping")
+# Configuración de la página
+st.set_page_config(
+    page_title="Detector de Marcas de Bebidas",
+    page_icon="🥤",
+    layout="wide"
+)
+
+# Función para cargar el modelo seleccionado
+@st.cache_resource
+def load_model(epochs):
+    try:
+        if epochs == 25:
+            model_path = "C:/Users/Administrator/Desktop/Proyecto_Proyecto CV - Detección de Objetos/cv_esther-jhon/src/models/25epochs/best_model_25epochs_640px.pt"
+        else:
+            model_path = "C:/Users/Administrator/Desktop/Proyecto_Proyecto CV - Detección de Objetos/cv_esther-jhon/src/models/50epochs/best_model_50epochs_640px_earlystop.pt"
+        
+        model = YOLO(model_path)
+        return model, None
+    except Exception as e:
+        return None, str(e)
+
+def correct_colors(frame):
+    # Ajustar el balance de blancos
+    lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
+    l, a, b = cv2.split(lab)
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+    cl = clahe.apply(l)
+    limg = cv2.merge((cl,a,b))
+    final = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
+    return final
+
+def main():
+    st.title("🥤 Detector de Marcas de Bebidas🥤")
+    
+    # Selector de modelo en la barra lateral
+    st.sidebar.header("⚙️ Configuración del Modelo")
+    epochs = st.sidebar.radio(
+        "Seleccionar Modelo YOLOv8s:",
+        [25, 50],
+        format_func=lambda x: f"Modelo {x} épocas de entrenamiento"
     )
     
-    if model_option == "25 épocas":
-        model_path = os.path.join(BASE_MODEL_DIR, "25_epochs", "best_model_25epochs_640px.pt")
+    # Cargar el modelo seleccionado
+    model, error = load_model(epochs)
+    
+    if error:
+        st.error(f"Error al cargar el modelo: {error}")
+        st.error("Por favor, verifica que:")
+        st.error("1. La ruta al modelo es correcta")
+        st.error("2. El archivo del modelo existe")
+        st.stop()
     else:
-        model_path = os.path.join(BASE_MODEL_DIR, "50_epochs", "best_model_50epochs_640px_earlystop.pt")
+        st.sidebar.success(f"✅ Modelo YOLOv8s de {epochs} épocas cargado correctamente!")
     
-    if not os.path.exists(model_path):
-        st.error(f"Error: No se encontró el modelo en {model_path}")
-        return None
+    # Menú principal
+    option = st.radio(
+        "Seleccione el modo de detección:",
+        ["📸 Subir Imagen", "🎥 Subir Video", "📹 Cámara en Vivo"],
+        horizontal=True
+    )
     
-    model = YOLO(model_path)
-    return model, model_option
-
-def process_image(image, model, conf_threshold):
-    """Procesa una imagen y detecta bebidas."""
-    results = model.predict(image, conf=conf_threshold)
-    return results[0]
-
-def draw_boxes(image, results):
-    """Dibuja las bounding boxes y etiquetas en la imagen."""
-    annotated_image = image.copy()
-    detections = []
-
-    if len(results.boxes) > 0:
-        for box in results.boxes:
-            # Extraemos coordenadas y confianza
-            x1, y1, x2, y2 = map(int, box.xyxy[0][:4])
-            confidence = float(box.conf[0])
-            class_id = int(box.cls[0])
-            class_name = results.names[class_id]
-
-            # Guardamos la detección para la tabla
-            detections.append({
-                'Marca': class_name,
-                'Confianza': f"{confidence:.2%}"
-            })
-
-            # Color según el nivel de confianza (más verde = más confianza)
-            color = (0, int(255 * confidence), 0)
-
-            # Dibujamos el rectángulo
-            cv2.rectangle(annotated_image, (x1, y1), (x2, y2), color, 2)
-
-            # Añadimos la etiqueta
-            label = f"{class_name}: {confidence:.1%}"
-            cv2.putText(annotated_image, label, (x1, y1 - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-
-    return annotated_image, detections
-
-def main():
-    st.set_page_config(page_title="Detector de Marcas de Bebidas", layout="wide")
-
-    st.title("🔍 Detector de Marcas de Bebidas")
-    st.write("Identifica bebidas y sus marcas en imágenes o videos.")
-
-    # Cargamos el modelo
-    with st.spinner('Cargando modelo entrenado...'):
-        model, model_option = load_model()
-        if model is None:
-            st.stop()
-
-    st.sidebar.info(f"Modelo seleccionado: {model_option}")
-
-    # Creamos dos columnas
-    col1, col2 = st.columns([1, 2])
-
-    with col1:
-        # Selector de tipo de archivo
-        file_type = st.radio("Tipo de archivo:", ["Imagen", "Video"])
-
-        # Ajuste del umbral de confianza
-        confidence_threshold = st.slider(
-            "Umbral de confianza",
-            min_value=0.0,
-            max_value=1.0,
-            value=0.25,
-            step=0.05
-        )
-
-    with col2:
-        if file_type == "Imagen":
-            uploaded_file = st.file_uploader("Sube una imagen", type=["jpg", "jpeg", "png"])
-
-            if uploaded_file is not None:
-                # Procesamos la imagen
-                image = Image.open(uploaded_file)
-                image_np = np.array(image)
-                results = process_image(image_np, model, confidence_threshold)
-
-                # Dibujamos las detecciones
-                output_image, detections = draw_boxes(image_np, results)
-
-                # Mostramos la imagen procesada
-                st.image(output_image, caption="Imagen procesada", use_column_width=True)
-
-                # Mostramos la tabla de detecciones
-                if detections:
-                    st.write("### Detecciones encontradas:")
-                    df = pd.DataFrame(detections)
-                    st.table(df)
-                else:
-                    st.warning("No se detectaron marcas de bebidas en esta imagen.")
-
-        else:  # Video
-            uploaded_file = st.file_uploader("Sube un video", type=["mp4", "avi"])
-
-            if uploaded_file is not None:
-                # Guardamos temporalmente el video
-                tfile = tempfile.NamedTemporaryFile(delete=False)
-                tfile.write(uploaded_file.read())
-
-                # Procesamos el video
-                video = cv2.VideoCapture(tfile.name)
+    # Configuración de confianza
+    confidence = st.sidebar.slider(
+        "Umbral de Confianza",
+        min_value=0.0,
+        max_value=1.0,
+        value=0.5,
+        step=0.05
+    )
+    
+    # Procesamiento según la opción seleccionada
+    if option == "📸 Subir Imagen":
+        uploaded_file = st.file_uploader("Selecciona una imagen...", type=['png', 'jpg', 'jpeg'])
+        
+        if uploaded_file is not None:
+            # Mostrar imagen original
+            col1, col2 = st.columns(2)
+            image = Image.open(uploaded_file)
+            with col1:
+                st.subheader("Imagen Original")
+                st.image(image, use_container_width=True)
+            
+            # Botón para realizar la detección
+            if st.button("Realizar Detección"):
+                with st.spinner("Procesando imagen..."):
+                    # Realizar predicción con el umbral de confianza seleccionado
+                    results = model.predict(image, conf=confidence)[0]
+                    
+                    # Mostrar imagen con detecciones
+                    with col2:
+                        st.subheader("Detecciones Encontradas")
+                        st.image(results.plot(), use_container_width=True)
+                    
+                    # Mostrar información de las detecciones
+                    st.subheader("Detalle de las predicciones:")
+                    if len(results.boxes) > 0:
+                        for box in results.boxes:
+                            conf = float(box.conf[0])
+                            cls = int(box.cls[0])
+                            name = results.names[cls]
+                            st.write(f"- Marca detectada: {name} (Confianza: {conf:.2%})")
+                    else:
+                        st.info("No se detectaron marcas de bebidas en la imagen con el umbral de confianza actual.")
+    
+    elif option == "🎥 Subir Video":
+        video_file = st.file_uploader("Selecciona un video...", type=['mp4', 'avi', 'mov'])
+        
+        if video_file is not None:
+            # Guardar el video subido temporalmente
+            tfile = tempfile.NamedTemporaryFile(delete=False)
+            tfile.write(video_file.read())
+            
+            st.video(video_file)  # Mostrar video original
+            
+            if st.button("Procesar Video"):
                 stframe = st.empty()
-                metrics_placeholder = st.empty()
-
-                while video.isOpened():
-                    ret, frame = video.read()
+                cap = cv2.VideoCapture(tfile.name)
+                
+                while cap.isOpened():
+                    ret, frame = cap.read()
                     if not ret:
                         break
-
-                    # Procesamos el frame
-                    results = process_image(frame, model, confidence_threshold)
-                    output_frame, detections = draw_boxes(frame, results)
-
-                    # Mostramos el frame procesado
-                    stframe.image(output_frame, channels="BGR", use_column_width=True)
-
-                    # Actualizamos las métricas en tiempo real
-                    if detections:
-                        metrics_placeholder.table(pd.DataFrame(detections))
-
-                video.release()
+                    
+                    frame = correct_colors(frame)
+                    
+                    # Realizar predicción con el umbral de confianza seleccionado
+                    results = model.predict(frame, conf=confidence)[0]
+                    
+                    # Mostrar frame con detecciones
+                    stframe.image(results.plot(), channels="BGR", use_container_width=True)
+                
+                cap.release()
+    
+    else:  # Cámara en Vivo
+        st.write("### Detección en tiempo real")
+        run = st.checkbox("Activar Cámara")
+        
+        if run:
+            stframe = st.empty()
+            cap = cv2.VideoCapture(0)  # 0 es la cámara por defecto
+            
+            while run:
+                ret, frame = cap.read()
+                if not ret:
+                    st.error("Error al acceder a la cámara")
+                    break
+                
+                frame = correct_colors(frame)
+                
+                # Realizar predicción con el umbral de confianza seleccionado
+                results = model.predict(frame, conf=confidence)[0]
+                
+                # Dibujar las detecciones en el frame
+                annotated_frame = results.plot()
+                
+                # Mostrar frame con detecciones
+                stframe.image(annotated_frame, channels="BGR", use_container_width=True)
+                
+                # Mostrar información de las detecciones
+                detections = []
+                for box in results.boxes:
+                    conf = float(box.conf[0])
+                    cls = int(box.cls[0])
+                    name = results.names[cls]
+                    detections.append(f"{name} ({conf:.2%})")
+                
+                if detections:
+                    st.write("Detecciones:", ", ".join(detections))
+                else:
+                    st.write("No se detectaron marcas de bebidas")
+            
+            cap.release()
 
 if __name__ == "__main__":
     main()
 
 
 
-'''
-#Primera versión del código
-import streamlit as st
-from ultralytics import YOLO
-import cv2
-import numpy as np
-from PIL import Image
-import tempfile
-import pandas as pd
 
 
-def load_model():
-    """Carga el modelo YOLO entrenado."""
-    model_path = "models/best_model.pt"  # Cambia esta ruta según tu estructura local
-    model = YOLO(model_path)  # Carga el modelo entrenado
-    return model
 
-
-def process_image(image, model, conf_threshold):
-    """Procesa una imagen y detecta bebidas."""
-    results = model.predict(image, conf=conf_threshold)
-    return results[0]
-
-
-def draw_boxes(image, results):
-    """Dibuja las bounding boxes y etiquetas en la imagen."""
-    annotated_image = image.copy()
-    detections = []
-
-    if len(results.boxes) > 0:
-        for box in results.boxes:
-            # Extraemos coordenadas y confianza
-            x1, y1, x2, y2 = map(int, box.xyxy[0][:4])
-            confidence = float(box.conf[0])
-            class_id = int(box.cls[0])
-            class_name = results.names[class_id]
-
-            # Guardamos la detección para la tabla
-            detections.append({
-                'Marca': class_name,
-                'Confianza': f"{confidence:.2%}"
-            })
-
-            # Color según el nivel de confianza (más verde = más confianza)
-            color = (0, int(255 * confidence), 0)
-
-            # Dibujamos el rectángulo
-            cv2.rectangle(annotated_image, (x1, y1), (x2, y2), color, 2)
-
-            # Añadimos la etiqueta
-            label = f"{class_name}: {confidence:.1%}"
-            cv2.putText(annotated_image, label, (x1, y1 - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-
-    return annotated_image, detections
-
-
-def main():
-    st.set_page_config(page_title="Detector de Marcas de Bebidas", layout="wide")
-
-    st.title("🔍 Detector de Marcas de Bebidas")
-    st.write("Identifica bebidas y sus marcas en imágenes o videos.")
-
-    # Cargamos el modelo
-    with st.spinner('Cargando modelo entrenado...'):
-        model = load_model()
-
-    # Creamos dos columnas
-    col1, col2 = st.columns([1, 2])
-
-    with col1:
-        # Selector de tipo de archivo
-        file_type = st.radio("Tipo de archivo:", ["Imagen", "Video"])
-
-        # Ajuste del umbral de confianza
-        confidence_threshold = st.slider(
-            "Umbral de confianza",
-            min_value=0.0,
-            max_value=1.0,
-            value=0.25,
-            step=0.05
-        )
-
-    with col2:
-        if file_type == "Imagen":
-            uploaded_file = st.file_uploader("Sube una imagen", type=["jpg", "jpeg", "png"])
-
-            if uploaded_file is not None:
-                # Procesamos la imagen
-                image = Image.open(uploaded_file)
-                image_np = np.array(image)
-                results = process_image(image_np, model, confidence_threshold)
-
-                # Dibujamos las detecciones
-                output_image, detections = draw_boxes(image_np, results)
-
-                # Mostramos la imagen procesada
-                st.image(output_image, caption="Imagen procesada", use_column_width=True)
-
-                # Mostramos la tabla de detecciones
-                if detections:
-                    st.write("### Detecciones encontradas:")
-                    df = pd.DataFrame(detections)
-                    st.table(df)
-                else:
-                    st.warning("No se detectaron marcas de bebidas en esta imagen.")
-
-        else:  # Video
-            uploaded_file = st.file_uploader("Sube un video", type=["mp4", "avi"])
-
-            if uploaded_file is not None:
-                # Guardamos temporalmente el video
-                tfile = tempfile.NamedTemporaryFile(delete=False)
-                tfile.write(uploaded_file.read())
-
-                # Procesamos el video
-                video = cv2.VideoCapture(tfile.name)
-                stframe = st.empty()
-                metrics_placeholder = st.empty()
-
-                while video.isOpened():
-                    ret, frame = video.read()
-                    if not ret:
-                        break
-
-                    # Procesamos el frame
-                    results = process_image(frame, model, confidence_threshold)
-                    output_frame, detections = draw_boxes(frame, results)
-
-                    # Mostramos el frame procesado
-                    stframe.image(output_frame, channels="BGR", use_column_width=True)
-
-                    # Actualizamos las métricas en tiempo real
-                    if detections:
-                        metrics_placeholder.table(pd.DataFrame(detections))
-
-                video.release()
-
-
-if __name__ == "__main__":
-    main()
-
-'''
