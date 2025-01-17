@@ -1,0 +1,9 @@
+Resumen del entrenamiento:
+Épocas: 25
+Tamaño de imagen: 640
+Resultados de métricas:
+metrics/precision(B): 0.9007163815172486
+metrics/recall(B): 0.9438257582489759
+metrics/mAP50(B): 0.9665469338712818
+metrics/mAP50-95(B): 0.9047465661311856
+fitness: 0.9109266029051952
