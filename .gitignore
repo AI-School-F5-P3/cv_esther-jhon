@@ -1,0 +1,15 @@
+# Python/Carpetas
+venv/
+*.pyc
+__pycache__/
+registered_faces/
+temp_files/
+brand_files/
+
+# Secrets
+.env
+.env
+
+# Modelos
+best_yolov8n.pt
+best_yolov8s.pt
